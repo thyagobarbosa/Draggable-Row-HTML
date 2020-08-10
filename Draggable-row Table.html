@@ -1,0 +1,289 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Draggable Row Table</title>
+
+    <style>
+        table {
+            border-collapse: collapse;
+            font: 18px 'Arial';
+        }
+
+        td, th {
+            padding: 0.5em;
+            border: 1px solid;
+        }
+
+        table.is-draggable > tbody td {
+            cursor: move;
+        }
+
+        table.is-draggable:not(.free-move) > tbody td > span {
+            cursor: initial;
+        }
+
+        tr.placeholder-row > td {
+            position: relative;
+        }
+
+        tr.placeholder-row > td:after {
+            position: absolute;
+            content: '';
+            left: -0.6px;
+            top: -0.7px;
+            width: calc(100% - 2.1px);
+            height: calc(100% - 2.6px);
+            background-color: #d5dcdf;
+            border: 2px dashed #888;
+        }
+
+        tr.placeholder-row > td:not(:first-child):after {
+            left: 0.3px;
+            width: calc(100% - 1px);
+            border-left: none;
+        }
+
+        tr.placeholder-row > td:last-child:after {
+            width: calc(100% - 1.7px);
+        }
+
+        .dragging-row {
+            pointer-events: none;
+        }
+    </style>
+</head>
+<body>
+    <table class="is-draggable">
+        <thead>
+            <tr>
+                <th>Col 1</th>
+                <th>Col 2</th>
+                <th>Col 3</th>
+                <th>Col 3</th>
+            </tr>
+        </thead>
+        <tbody>
+            <tr>
+                <td>Cell 11</td>
+                <td>Cell 12</td>
+                <td>Cell 13</td>
+                <td>Cell 13</td>
+            </tr>
+            <tr>
+                <td>Cell 21</td>
+                <td>Cell 22</td>
+                <td>Cell 23</td>
+                <td>Cell 23</td>
+            </tr>
+            <tr>
+                <td>Cell 31</td>
+                <td>Cell 32</td>
+                <td>Cell 33</td>
+                <td>Cell 33</td>
+            </tr>
+            <tr>
+                <td>Cell 41</td>
+                <td>Cell 42</td>
+                <td>Cell 43</td>
+                <td>Cell 43</td>
+            </tr>
+            <tr>
+                <td>Cell 51</td>
+                <td>Cell 51</td>
+                <td>Cell 52</td>
+                <td>Cell 53</td>
+            </tr>
+            <tr>
+                <td>Cell 61</td>
+                <td>Cell 61</td>
+                <td>Cell 62</td>
+                <td>Cell 63</td>
+            </tr>
+            <tr>
+                <td>Cell 71</td>
+                <td>Cell 71</td>
+                <td>Cell 72</td>
+                <td>Cell 73</td>
+            </tr>
+            <tr>
+                <td>Cell 81</td>
+                <td>Cell 82</td>
+                <td>Cell 82</td>
+                <td>Cell 83</td>
+            </tr>
+            <tr>
+                <td>Cell 91</td>
+                <td>Cell 92</td>
+                <td>Cell 93</td>
+                <td>Cell 93</td>
+            </tr>
+            <tr>
+                <td>Cell 101</td>
+                <td>Cell 102</td>
+                <td>Cell 103</td>
+                <td><span>Cell 103</span></td>
+            </tr>
+        </tbody>
+    </table>
+</body>
+<!-- Script's Section -->
+<script type="text/javascript">
+    Node.prototype.$ = function(selector) { return this.querySelectorAll(selector) };
+    const $ = (selector) => document.$(selector);
+    const createElement = function(tag, attribute, inner = "") {
+        if (!tag || typeof(tag) !== "string") return undefined;
+        const element = document.createElement(tag);
+        if (typeof(attribute) === "object") {
+            for (const key in attribute) {
+                element.setAttribute(key, attribute[key]);
+            }
+        }
+        if (!Array.isArray(inner)) inner = [inner];
+        for (let i = 0; i < inner.length; i++) {
+            if (inner[i].tagName) element.appendChild(inner[i]);
+            else if (tag === "input") element.value = inner[i];
+            else element.innerHTML = inner[i];
+        }
+        return element;
+    }
+    const deleteElement = (element) => element.parentNode.removeChild(element);
+    Element.prototype.insertAtIndex = function(child, index = 0) {
+        deleteElement(child);
+        if (index >= this.children.length) this.appendChild(child);
+        else this.insertBefore(child, this.children[index]);
+    }
+</script>
+
+<script type="text/javascript">
+    // Fix Table Cells drag colision
+    $('table.is-draggable > tbody > tr').forEach(row => {
+        for (let i = 0; i < row.children.length; i++) {
+            const cell = row.children[i];
+            const length = cell.children.length;
+            if (cell.innerHTML === "") continue;
+            
+            let needFix = false;
+            if (length === 0 || length > 1) needFix = true;
+            else if (cell.children[0].constructor !== HTMLSpanElement) needFix = true;
+
+            if (needFix) {
+                const span = createElement('span', null, cell.innerHTML);
+                cell.innerHTML = "";
+                cell.appendChild(span);
+            }
+        }
+    });
+
+    let target;
+    let originalIndex;
+    let dragging;
+    let dragStart;
+    const mouse = {x: 0, y: 0};
+
+    const mouseDownDrag = function(e) {
+        if (e.button !== 0 || getComputedStyle(e.target).cursor !== 'move') return;
+        e.preventDefault();
+        target = e.target;
+        while (target.constructor !== HTMLTableRowElement) {
+            target = target.parentNode;
+        }
+        originalIndex = target.sectionRowIndex;
+        dragStart = false;
+
+        mouse.x = e.pageX;
+        mouse.y = e.pageY;
+
+        document.addEventListener('mousemove', mouseMoveDrag);
+        document.addEventListener('mouseup', mouseUpDrag);
+    };
+
+    const mouseMoveDrag = function(e) {
+        if (!dragStart) {
+            dragStart = true;
+            
+            const table = target.offsetParent.cloneNode();
+            target.parentNode.constructor === HTMLTableSectionElement 
+                && table.appendChild(target.parentNode.cloneNode());
+            table.tBodies[0] || table.createTBody();
+            table.classList.remove('is-draggable');
+            table.classList.add('.dragging-row');
+            table.className || table.removeAttribute('class');
+            table.style.position = 'absolute';
+            table.style.top = `${target.offsetTop + target.offsetParent.offsetTop}px`;
+            
+            dragging = target.cloneNode(true);
+            for (let i = 0; i < target.children.length; i++) {
+                dragging.children[i].style.width = getComputedStyle(target.children[i]).width;
+                dragging.children[i].style.height = getComputedStyle(target.children[i]).height;
+            }
+            if (getComputedStyle(target).backgroundColor.match(/rgba.+,\s*0\)$/)) {
+                dragging.style.backgroundColor = 'white';
+            }
+            table.tBodies[0].appendChild(dragging);
+            target.classList.add('placeholder-row');
+            document.body.insertBefore(table, $('body > script')[0]);
+            document.body.setAttribute('oncontextmenu', "return false");
+            document.body.style.cursor = 'move';
+        }
+
+        const motion = {x: e.pageX - mouse.x, y: e.pageY- mouse.y};
+        mouse.x = e.pageX;
+        mouse.y = e.pageY;
+
+        const table = dragging.offsetParent;
+        table.style.left = `${table.offsetLeft + motion.x}px`;
+        table.style.top = `${table.offsetTop + motion.y}px`;
+
+        const getY = (element) => {
+            return element.offsetTop + element.offsetParent.offsetTop 
+                - element.offsetParent.parentNode.scrollTop; 
+        }
+        const placeholder = $('.placeholder-row')[0];
+        const length = placeholder.parentNode.children.length;
+        let index = placeholder.sectionRowIndex;
+        let reference;
+
+        let incr = 0;
+        let move = false;
+        if (index > 0 && mouse.y < getY(placeholder)) {
+            reference = placeholder.parentNode.children[0];
+            move = mouse.y <= getY(reference) + reference.offsetHeight;
+            incr = -1;
+        } else if (index < length - 1 && mouse.y > getY(placeholder) + placeholder.offsetHeight) {
+            reference = placeholder.parentNode.children[length - 1];
+            move = mouse.y >= getY(reference);
+            incr = 1;
+        }
+        
+        while (!move && incr !== 0 && [0, length - 1].indexOf(index += incr) === -1) {
+            reference = placeholder.parentNode.children[index];
+            move = mouse.y >= getY(reference) && mouse.y <= getY(reference) + reference.offsetHeight;
+        }
+
+        if (move) {
+            placeholder.parentNode.insertAtIndex(placeholder, reference.sectionRowIndex);
+        }
+    }
+
+    const mouseUpDrag = function(e) {
+        if (e.button && e.button !== 0) return;
+
+        document.removeEventListener('mousemove', mouseMoveDrag);
+        document.removeEventListener('mouseup', mouseUpDrag);
+
+        if (!dragStart) return;
+        deleteElement(dragging.offsetParent);
+        target.classList.remove('placeholder-row');
+        target.getAttribute('class') || target.removeAttribute('class');
+
+        document.body.removeAttribute('oncontextmenu');
+        document.body.style.cursor = '';
+        document.body.getAttribute('style') || document.body.removeAttribute('style');
+    }
+
+    $('table.is-draggable > tbody')[0].addEventListener('mousedown', mouseDownDrag);
+
+</script>
+</html>
